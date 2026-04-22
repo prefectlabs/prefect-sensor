@@ -1,0 +1,6 @@
+sensors:
+  - tests.helpers.DummySensor:
+      name: from-env
+      n: 0
+      labels:
+        secret: "{{ env('PREFECT_SENSOR_TEST_SECRET') }}"

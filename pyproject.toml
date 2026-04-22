@@ -1,0 +1,33 @@
+[project]
+name = "prefect-sensor"
+version = "0.1.0"
+description = "A modular sensor framework for Prefect event-driven orchestration."
+requires-python = ">=3.12"
+dependencies = [
+    "cyclopts>=4.8.0",
+    "prefect-client>=3.6.23",
+    "pydantic>=2.12.5",
+    "pyyaml>=6.0",
+]
+readme = "README.md"
+
+[project.scripts]
+prefect-sensor = "prefect_sensor.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prefect_sensor"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

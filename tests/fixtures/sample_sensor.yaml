@@ -1,0 +1,7 @@
+sensors:
+  - tests.helpers.DummySensor:
+      name: alpha
+      n: 0
+  - tests.helpers.DummySensor:
+      name: beta
+      n: 0
