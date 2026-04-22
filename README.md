@@ -30,6 +30,7 @@ Use `{{ env('VAR') }}` or `{{ env('VAR', 'default') }}` for secrets.
 ```bash
 prefect-sensor list --config sensor.yaml
 prefect-sensor start --config sensor.yaml
+prefect-sensor start --config sensor.yaml --summary-interval-seconds 60
 ```
 
 ## Library

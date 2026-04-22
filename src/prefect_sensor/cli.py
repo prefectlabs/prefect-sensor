@@ -40,7 +40,7 @@ def _register_signal_handlers(manager: SensorManager) -> None:
             pass
 
 
-async def _run_start(config: Path) -> None:
+async def _run_start(config: Path, summary_interval_seconds: float) -> None:
     _configure_logging()
     manager = SensorManager.from_yaml(config)
 
@@ -53,7 +53,7 @@ async def _run_start(config: Path) -> None:
     print()
 
     _register_signal_handlers(manager)
-    await manager.start()
+    await manager.start(summary_interval_seconds=summary_interval_seconds)
 
     print("\nFinal status:")
     print(manager.summary())
@@ -65,11 +65,24 @@ def start(
         Path,
         Parameter(help="Path to sensor.yaml", name=("--config", "-c")),
     ] = Path("sensor.yaml"),
+    summary_interval_seconds: Annotated[
+        float,
+        Parameter(
+            help="Seconds between periodic summary log lines",
+            name=("--summary-interval-seconds",),
+        ),
+    ] = 60.0,
 ) -> None:
     """Run all sensors from the YAML config until interrupted."""
+    if summary_interval_seconds <= 0:
+        print("summary-interval-seconds must be greater than 0", file=sys.stderr)
+        raise SystemExit(1)
     try:
-        asyncio.run(_run_start(config))
+        asyncio.run(_run_start(config, summary_interval_seconds))
     except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1) from exc
+    except ValueError as exc:
         print(exc, file=sys.stderr)
         raise SystemExit(1) from exc
 

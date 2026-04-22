@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from prefect_sensor.base import BaseSensor
+from prefect_sensor._internal.schema import SensorObservation, SensorState
 from prefect_sensor.manager import SensorManager
 from tests.helpers import DummySensor
 
@@ -54,6 +57,47 @@ async def test_from_yaml_roundtrip(sample_sensor_yaml_path: str) -> None:
     assert len(manager.sensors) == 2
     names = {s.config.name for s in manager.sensors}
     assert names == {"alpha", "beta"}
+
+
+@pytest.mark.asyncio
+async def test_start_logs_summary_periodically(caplog) -> None:
+    class WaitingSensor(BaseSensor):
+        class Config(DummySensor.Config):
+            pass
+
+        config: Config
+
+        async def observe(self):
+            if False:
+                yield SensorObservation(  # pragma: no cover
+                    event_type="tick",
+                    resource_id="waiting:noop",
+                )
+            while not self._stop_event.is_set():
+                await asyncio.sleep(0.01)
+
+    sensor = WaitingSensor(WaitingSensor.Config(name="waiting"))
+    manager = SensorManager.from_sensors(sensor)
+
+    caplog.set_level(logging.INFO, logger="prefect.sensors")
+    task = asyncio.create_task(manager.start(summary_interval_seconds=0.01))
+    await asyncio.sleep(0.04)
+    await manager.stop()
+    await task
+
+    assert "SensorManager: 1 sensor(s) configured" in caplog.text
+    assert manager._summary_task is None
+    assert sensor.state == SensorState.IDLE
+
+
+@pytest.mark.asyncio
+async def test_start_rejects_non_positive_summary_interval() -> None:
+    manager = SensorManager.from_sensors(
+        DummySensor(DummySensor.Config(name="alpha", n=1))
+    )
+
+    with pytest.raises(ValueError, match="greater than 0"):
+        await manager.start(summary_interval_seconds=0)
 
 
 def test_summary(sample_sensor_yaml_path: str) -> None:
