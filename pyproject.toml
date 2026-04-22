@@ -5,6 +5,7 @@ description = "A modular sensor framework for Prefect event-driven orchestration
 requires-python = ">=3.12"
 dependencies = [
     "cyclopts>=4.8.0",
+    "paramiko>=3.5.0",
     "prefect-client>=3.6.23",
     "pydantic>=2.12.5",
     "pyyaml>=6.0",
