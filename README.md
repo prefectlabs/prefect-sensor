@@ -10,6 +10,8 @@ uv sync
 
 Development dependencies (pytest): `uv sync --group dev`.
 
+Filesystem sensors use `watchdog` for native filesystem events and are installed with the project dependencies.
+
 ## Configure
 
 Create a `sensor.yaml` with import paths as keys (see tests/fixtures for examples):

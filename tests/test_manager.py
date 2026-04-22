@@ -34,7 +34,7 @@ async def test_stop_cancels_tasks() -> None:
             name="slow-fs",
             watch_paths=[str(watch)],
             patterns=["*.yaml"],
-            poll_interval_seconds=3600.0,
+            events=["created"],
         )
     )
     manager = SensorManager.from_sensors(s)
