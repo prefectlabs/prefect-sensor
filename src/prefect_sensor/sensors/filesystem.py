@@ -8,12 +8,16 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.events import (
+    FileSystemEvent,
+    PatternMatchingEventHandler,
+    EVENT_TYPE_MOVED,
+)
 from watchdog.observers import Observer
 
-from prefect_sensor.base import BaseSensor, StatefulSensorMixin
 from prefect_sensor._internal.schema import SensorObservation
 from prefect_sensor._internal.schema.config import SensorConfig
+from prefect_sensor.base import BaseSensor, StatefulSensorMixin
 
 _SUPPORTED_EVENTS = {"created", "modified", "deleted", "moved"}
 _DEFAULT_EVENTS = ["created", "modified", "deleted", "moved"]
@@ -24,11 +28,15 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
 
     class Config(SensorConfig):
         watch_paths: list[str]
-        patterns: list[str] = Field(default_factory=lambda: ["*"])
+
         recursive: bool = True
         events: list[str] = Field(default_factory=lambda: _DEFAULT_EVENTS.copy())
-        include_directories: bool = False
         emit_prefix: str = "sensor.filesystem"
+
+        patterns: list[str] = Field(default_factory=lambda: ["*"])
+        ignore_patterns: list[str] = Field(default=None)
+        ignore_directories: bool = True
+        case_sensitive: bool = False
 
         @field_validator("events")
         @classmethod
@@ -60,7 +68,13 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
 
     async def setup(self) -> None:
         self._queue = asyncio.Queue()
-        self._handler = _WatchdogEventHandler(self)
+        self._handler = _WatchdogEventHandler(
+            self,
+            patterns=self.config.patterns,
+            ignore_patterns=self.config.ignore_patterns,
+            ignore_directories=self.config.ignore_directories,
+            case_sensitive=self.config.case_sensitive,
+        )
         self._watch_roots = []
 
         for wp in self.config.watch_paths:
@@ -125,9 +139,6 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
             return
         self._loop.call_soon_threadsafe(self._queue.put_nowait, None)
 
-    def _normalize_path(self, path: str) -> Path:
-        return Path(path).expanduser().absolute()
-
     def _candidate_root(self, path: Path) -> tuple[Path, Path] | None:
         for root in self._watch_roots:
             try:
@@ -137,25 +148,6 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
             if not self.config.recursive and len(rel.parts) > 1:
                 continue
             return root, rel
-        return None
-
-    def _matches_patterns(self, rel_path: Path) -> bool:
-        return any(rel_path.match(pattern) for pattern in self.config.patterns)
-
-    def _select_candidate(
-        self,
-        candidates: list[str],
-        *,
-        is_directory: bool,
-    ) -> tuple[Path, Path] | None:
-        for candidate in candidates:
-            path = self._normalize_path(candidate)
-            matched = self._candidate_root(path)
-            if matched is None:
-                continue
-            root, rel = matched
-            if is_directory or self._matches_patterns(rel):
-                return path, root
         return None
 
     def _queue_observation(self, obs: SensorObservation) -> None:
@@ -169,23 +161,8 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
         if event_name not in self.config.events:
             return
 
-        if event.is_directory and not self.config.include_directories:
-            return
-
-        candidates = [event.src_path]
-        if event_name == "moved":
-            dest_path = getattr(event, "dest_path", None)
-            if dest_path is not None:
-                candidates = [dest_path, event.src_path]
-
-        selected = self._select_candidate(
-            candidates,
-            is_directory=event.is_directory,
-        )
-        if selected is None:
-            return
-
-        path, root = selected
+        path = event.dest_path or event.src_path
+        root, _ = self._candidate_root(Path(str(path)))
         kind = "directory" if event.is_directory else "file"
         payload: dict[str, Any] = {
             "path": str(path),
@@ -193,7 +170,8 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
             "is_directory": event.is_directory,
             "watch_root": str(root),
         }
-        if event_name == "moved":
+
+        if event.event_type == EVENT_TYPE_MOVED:
             payload["source_path"] = str(event.src_path)
             payload["destination_path"] = str(getattr(event, "dest_path", path))
 
@@ -206,9 +184,9 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
         )
 
 
-class _WatchdogEventHandler(FileSystemEventHandler):
-    def __init__(self, sensor: FileSystemSensor) -> None:
-        super().__init__()
+class _WatchdogEventHandler(PatternMatchingEventHandler):
+    def __init__(self, sensor: FileSystemSensor, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._sensor = sensor
 
     def on_created(self, event: FileSystemEvent) -> None:
