@@ -66,7 +66,7 @@ asyncio.run(manager.start())
 - [File System](docs/docs/sensors/filesystem.md)
 - [SFTP](docs/docs/sensors/sftp.md)
 - [Kafka](docs/docs/sensors/kafka.md) *(stub)*
-- [SQL](docs/docs/sensors/sql.md) *(stub)*
+- [SQL](docs/docs/sensors/sql.md)
 
 ## Docs
 
