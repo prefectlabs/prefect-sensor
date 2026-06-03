@@ -162,7 +162,7 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
             return
 
         path = event.dest_path or event.src_path
-        root, _ = self._candidate_root(Path(str(path)))
+        root, _ = self._candidate_root(Path(str(path))) or (None, None)
         kind = "directory" if event.is_directory else "file"
         payload: dict[str, Any] = {
             "path": str(path),
