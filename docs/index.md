@@ -26,8 +26,8 @@ features:
     details: Drop-in classes for filesystem, SFTP, Kafka, and SQL. Each sensor is identified by its import path so you can mix built-ins with your own.
   - title: Prefect-native events
     icon: 📡
-    details: Sensors emit through `prefect.events.emit_event`, so observations flow into Prefect Cloud's event stream and can trigger automations.
+    details: Sensors emit through <code>prefect.events.emit_event</code>, so observations flow into Prefect Cloud's event stream and can trigger automations.
   - title: YAML-first configuration
     icon: ⚙️
-    details: Configure sensors with a single YAML file. Run via the CLI, the published `ghcr.io/prefectlabs/prefect-sensor` container image, or embed `SensorManager` as a library.
+    details: Configure sensors with a single YAML file. Run via the CLI, the published <code>ghcr.io/prefectlabs/prefect-sensor</code> container image, or embed <code>SensorManager</code> as a library.
 ---
