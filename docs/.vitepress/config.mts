@@ -4,6 +4,7 @@ import {defineConfig} from 'vitepress'
 export default defineConfig({
 	title: "Prefect Sensor",
 	description: "A modular sensor framework for Prefect: automate workflows from events in any system",
+	base: '/prefect-sensor',
 	themeConfig: {
 		// https://vitepress.dev/reference/default-theme-config
 		nav: [
