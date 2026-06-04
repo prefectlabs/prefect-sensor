@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import tempfile
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 from pydantic import Field, model_validator
@@ -17,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from prefect_sensor._internal.schema import SensorObservation
 from prefect_sensor._internal.schema.config import SensorConfig
-from prefect_sensor.base import BaseSensor
+from prefect_sensor.base import BaseSensor, StatefulSensorMixin
 
 
 _START_VALUE_GLOBALS: dict[str, Any] = {
@@ -32,7 +28,7 @@ def _eval_start_value(expr: str) -> Any:
     return eval(expr, _START_VALUE_GLOBALS, {})  # noqa: S307 — user-controlled config
 
 
-class SQLSensor(BaseSensor):
+class SQLSensor(StatefulSensorMixin, BaseSensor):
     """Poll a SQL table for new rows by tracking a monotonically rising column.
 
     The sensor runs ``query`` on each poll, binding the current high-water-mark
@@ -93,7 +89,6 @@ class SQLSensor(BaseSensor):
         tracking_type: Literal["integer", "timestamp"] = "integer"
         start_value: Optional[str] = None
         emit_existing: bool = False
-        state_file: Optional[str] = None
         poll_interval_seconds: float = Field(default=15.0, ge=0)
         emit_prefix: str = "sensor.sql"
 
@@ -202,51 +197,10 @@ class SQLSensor(BaseSensor):
                 value = value.replace(tzinfo=timezone.utc)
         return value
 
-    def _state_path(self) -> Path | None:
-        if not self.config.state_file:
-            return None
-        return Path(self.config.state_file).expanduser()
-
-    def _load_state(self) -> Any:
-        path = self._state_path()
-        if path is None or not path.exists():
-            return None
-        try:
-            raw = json.loads(path.read_text())
-        except json.JSONDecodeError as exc:
-            self.logger.warning("Corrupt state file %s: %s", path, exc)
-            return None
-        hwm = raw.get("hwm")
-        if hwm is None:
-            return None
-        if self.config.tracking_type == "timestamp" and isinstance(hwm, str):
-            parsed = datetime.fromisoformat(hwm)
+    def _deserialize_state(self, value: Any) -> Any:
+        if self.config.tracking_type == "timestamp" and isinstance(value, str):
+            parsed = datetime.fromisoformat(value)
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             return parsed
-        return hwm
-
-    def _save_state(self, hwm: Any) -> None:
-        path = self._state_path()
-        if path is None or hwm is None:
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        if isinstance(hwm, datetime):
-            serialized: Any = hwm.isoformat()
-        else:
-            serialized = hwm
-
-        fd, tmp_name = tempfile.mkstemp(
-            dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump({"hwm": serialized}, f)
-            os.replace(tmp_name, path)
-        except Exception:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
+        return value

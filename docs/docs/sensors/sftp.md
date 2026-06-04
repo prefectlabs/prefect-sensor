@@ -19,6 +19,7 @@ title: SFTP Sensor
 | `look_for_keys` | `bool` | `true` | Auto-discover keys in `~/.ssh`. |
 | `remote_directories` | `list[str]` | `["/upload"]` | Remote directories to poll. Missing directories log a warning and are skipped. |
 | `poll_interval_seconds` | `float` | `30.0` | Seconds between polls. |
+| `state_file` | `str \| null` | `null` | Path to a JSON file used to persist the last-seen file `mtime` across restarts. When present and existing on `setup()`, files with `mtime <= state` are silently treated as already-known on the first poll so `file.appeared` is not refired. |
 | `emit_prefix` | `str` | `"sensor.sftp"` | Prefix prepended to every emitted event type. |
 
 ## Example
@@ -50,4 +51,8 @@ Each observation carries:
 - **Resource ID** — `sftp:{hostname}:{remote_path}`
 - **Payload** — `hostname` and `remote_path`. `appeared` and `changed` events additionally include `size` and `mtime`.
 
-The sensor maintains an in-memory map of remote paths to size/mtime, so unchanged files are not re-emitted on every poll. Restarting the sensor resets this map and any existing files will be re-emitted as `file.appeared`.
+The sensor maintains an in-memory map of remote paths to size/mtime, so unchanged files are not re-emitted on every poll.
+
+## State persistence
+
+By default, restarting the sensor resets the in-memory map and any existing files will be re-emitted as `file.appeared`. Set `state_file` to a writable path to persist the highest `mtime` the sensor has observed. After each poll and on teardown the HWM is written atomically (temp file + `os.replace`). On the next startup, files with `mtime <= HWM` are silently added to the in-memory map without refiring `file.appeared`; only files newer than the HWM produce events. `file.changed` and `file.removed` semantics are unaffected.

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import abc
 import asyncio
-import hashlib
 import json
 import logging
+import os
+import tempfile
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from prefect_sensor._internal.schema import (
@@ -25,26 +27,78 @@ logger = logging.getLogger("prefect.sensors")
 
 class StatefulSensorMixin:
     """
-    Mixin for polling-based sensors that track what they've already seen.
+    Mixin that persists a single JSON-serializable state value to disk.
 
-    For production, back this with a Prefect Block (JSON, S3, Redis)
-    so state survives process restarts.
+    Subclasses call ``_load_state()`` during ``setup()`` to seed their
+    in-memory state, and ``_save_state(value)`` after material updates.
+    Writes are atomic via tempfile + ``os.replace``.
+
+    Storage format is ``{"state": <value>}``. For backward compatibility
+    the loader also accepts the legacy ``{"hwm": <value>}`` shape used by
+    older SQL state files.
+
+    ``datetime`` values are serialized with ``isoformat()``. Subclasses
+    that need typed deserialization (e.g. parsing ISO strings back to
+    ``datetime``) should override ``_deserialize_state``.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._seen: set[str] = set()
+    def _state_path(self) -> Path | None:
+        state_file = getattr(self.config, "state_file", None)
+        if not state_file:
+            return None
+        return Path(state_file).expanduser()
 
-    def _fingerprint(self, data: Any) -> str:
-        raw = json.dumps(data, sort_keys=True, default=str).encode()
-        return hashlib.sha256(raw).hexdigest()[:16]
+    def _serialize_state(self, value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value
 
-    def _is_new(self, data: Any) -> bool:
-        fp = self._fingerprint(data)
-        if fp in self._seen:
-            return False
-        self._seen.add(fp)
-        return True
+    def _deserialize_state(self, value: Any) -> Any:
+        return value
+
+    def _load_state(self) -> Any:
+        path = self._state_path()
+        if path is None or not path.exists():
+            return None
+        try:
+            raw = json.loads(path.read_text())
+        except json.JSONDecodeError as exc:
+            self.logger.warning("Corrupt state file %s: %s", path, exc)
+            return None
+        if not isinstance(raw, dict):
+            self.logger.warning("Unexpected state file shape in %s: %r", path, raw)
+            return None
+        if "state" in raw:
+            value = raw["state"]
+        elif "hwm" in raw:
+            value = raw["hwm"]
+        else:
+            return None
+        if value is None:
+            return None
+        return self._deserialize_state(value)
+
+    def _save_state(self, value: Any) -> None:
+        path = self._state_path()
+        if path is None or value is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        serialized = {"state": self._serialize_state(value)}
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(serialized, f, default=str)
+            os.replace(tmp_name, path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
 
 class BaseSensor(abc.ABC):

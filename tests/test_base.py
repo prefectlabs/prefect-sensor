@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -74,22 +77,83 @@ async def test_request_stop_mid_run() -> None:
     assert emit.await_count == 1
 
 
-def test_stateful_mixin_fingerprint() -> None:
-    class C(StatefulSensorMixin, BaseSensor):
-        class Config(SensorConfig):
-            pass
+class _StateSensor(StatefulSensorMixin, BaseSensor):
+    class Config(SensorConfig):
+        pass
 
-        config: Config
+    config: Config
 
-        async def observe(self):
-            if False:
-                yield SensorObservation(  # pragma: no cover
-                    event_type="x",
-                    resource_id="y",
-                )
+    async def observe(self):
+        if False:
+            yield SensorObservation(  # pragma: no cover
+                event_type="x",
+                resource_id="y",
+            )
 
-    c = C(C.Config(name="mixin"))
-    assert c._fingerprint({"a": 1}) == c._fingerprint({"a": 1})
-    assert c._fingerprint({"a": 1}) != c._fingerprint({"a": 2})
-    assert c._is_new({"x": 1}) is True
-    assert c._is_new({"x": 1}) is False
+
+class _DatetimeStateSensor(_StateSensor):
+    def _deserialize_state(self, value):
+        if isinstance(value, str):
+            return datetime.fromisoformat(value)
+        return value
+
+
+def test_stateful_mixin_returns_none_without_state_file() -> None:
+    sensor = _StateSensor(_StateSensor.Config(name="s"))
+    assert sensor._load_state() is None
+    sensor._save_state(42)
+
+
+def test_stateful_mixin_returns_none_when_file_missing(tmp_path: Path) -> None:
+    state_file = tmp_path / "missing.json"
+    sensor = _StateSensor(_StateSensor.Config(name="s", state_file=str(state_file)))
+    assert sensor._load_state() is None
+
+
+def test_stateful_mixin_roundtrips_int(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    sensor = _StateSensor(_StateSensor.Config(name="s", state_file=str(state_file)))
+    sensor._save_state(123)
+    assert json.loads(state_file.read_text()) == {"state": 123}
+    assert sensor._load_state() == 123
+
+
+def test_stateful_mixin_roundtrips_dict(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    sensor = _StateSensor(_StateSensor.Config(name="s", state_file=str(state_file)))
+    offsets = {"orders": {"0": 42, "1": 7}}
+    sensor._save_state(offsets)
+    assert sensor._load_state() == offsets
+
+
+def test_stateful_mixin_roundtrips_datetime_via_override(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    sensor = _DatetimeStateSensor(
+        _DatetimeStateSensor.Config(name="s", state_file=str(state_file))
+    )
+    when = datetime(2024, 6, 1, 12, 30, tzinfo=timezone.utc)
+    sensor._save_state(when)
+    assert sensor._load_state() == when
+
+
+def test_stateful_mixin_backward_compat_hwm_key(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"hwm": 99}))
+    sensor = _StateSensor(_StateSensor.Config(name="s", state_file=str(state_file)))
+    assert sensor._load_state() == 99
+
+
+def test_stateful_mixin_corrupt_file_returns_none(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text("not json at all")
+    sensor = _StateSensor(_StateSensor.Config(name="s", state_file=str(state_file)))
+    assert sensor._load_state() is None
+
+
+def test_stateful_mixin_does_not_leave_tempfiles(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    sensor = _StateSensor(_StateSensor.Config(name="s", state_file=str(state_file)))
+    sensor._save_state(7)
+    assert sensor._load_state() == 7
+    remaining = [p.name for p in tmp_path.iterdir() if p.name != "state.json"]
+    assert remaining == []

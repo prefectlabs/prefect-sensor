@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -65,6 +67,7 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
         self._queue: asyncio.Queue[SensorObservation | None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._watch_roots: list[Path] = []
+        self._last_mtime: float = 0.0
 
     async def setup(self) -> None:
         self._queue = asyncio.Queue()
@@ -99,6 +102,14 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
             )
         self._observer.start()
 
+        loaded = self._load_state()
+        if loaded is not None:
+            self._last_mtime = float(loaded)
+            self._run_catchup_scan()
+        else:
+            self._last_mtime = time.time()
+        self._save_state(self._last_mtime)
+
     async def observe(self) -> AsyncIterator[SensorObservation]:
         if self._queue is None:
             msg = "setup() must be called before observe()."
@@ -125,6 +136,7 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
             observer.stop()
             await asyncio.to_thread(observer.join)
 
+        self._save_state(self._last_mtime)
         self._queue = None
         self._watch_roots = []
 
@@ -182,6 +194,56 @@ class FileSystemSensor(StatefulSensorMixin, BaseSensor):
                 payload=payload,
             )
         )
+
+        self._last_mtime = max(self._last_mtime, time.time())
+        self._save_state(self._last_mtime)
+
+    def _matches_patterns(self, name: str) -> bool:
+        matcher = (
+            fnmatch.fnmatchcase
+            if self.config.case_sensitive
+            else (lambda n, p: fnmatch.fnmatchcase(n.lower(), p.lower()))
+        )
+        patterns = self.config.patterns or ["*"]
+        if not any(matcher(name, p) for p in patterns):
+            return False
+        ignores = self.config.ignore_patterns or []
+        if any(matcher(name, p) for p in ignores):
+            return False
+        return True
+
+    def _run_catchup_scan(self) -> None:
+        if self._queue is None:
+            return
+        max_mtime = self._last_mtime
+        for root in self._watch_roots:
+            iterator = root.rglob("*") if self.config.recursive else root.iterdir()
+            for path in iterator:
+                try:
+                    if not path.is_file():
+                        continue
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime <= self._last_mtime:
+                    continue
+                if not self._matches_patterns(path.name):
+                    continue
+                max_mtime = max(max_mtime, mtime)
+                self._queue.put_nowait(
+                    SensorObservation(
+                        event_type="file.created",
+                        resource_id=f"filesystem:{path}",
+                        payload={
+                            "path": str(path),
+                            "kind": "file",
+                            "is_directory": False,
+                            "watch_root": str(root),
+                            "catchup": True,
+                        },
+                    )
+                )
+        self._last_mtime = max_mtime
 
 
 class _WatchdogEventHandler(PatternMatchingEventHandler):

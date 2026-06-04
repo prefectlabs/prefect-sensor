@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -19,3 +19,7 @@ class SensorConfig(BaseModel):
     emit_prefix: str = Field(default="sensor")
     error_backoff_seconds: float = Field(default=5.0, ge=0)
     max_consecutive_errors: int = Field(default=10, ge=1)
+    state_file: Optional[str] = Field(
+        default=None,
+        description="Path to a JSON file used to persist sensor state across restarts.",
+    )

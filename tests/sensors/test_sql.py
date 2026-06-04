@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -172,6 +173,43 @@ async def test_sql_sensor_state_persistence(tmp_path: Path) -> None:
         assert [o.payload["id"] for o in obs] == [4]
     finally:
         await s2.teardown()
+
+    persisted = json.loads(Path(state_file).read_text())
+    assert persisted == {"state": 4}
+
+
+@pytest.mark.asyncio
+async def test_sql_sensor_reads_legacy_hwm_state(tmp_path: Path) -> None:
+    db_url = _sqlite_url(tmp_path)
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"hwm": 3}))
+    await _seed_orders(db_url)
+    await _insert_orders(
+        db_url,
+        [
+            (i, f"cust-{i}", datetime(2024, 1, i, tzinfo=timezone.utc))
+            for i in (1, 2, 3, 4)
+        ],
+    )
+
+    s = SQLSensor(
+        SQLSensor.Config(
+            name="q",
+            connection_string=db_url,
+            query="SELECT id, customer FROM orders WHERE id > :hwm ORDER BY id",
+            tracking_column="id",
+            emit_existing=True,
+            state_file=str(state_file),
+            poll_interval_seconds=0,
+        )
+    )
+    await s.setup()
+    try:
+        assert s._hwm == 3
+        obs = await _collect(s)
+        assert [o.payload["id"] for o in obs] == [4]
+    finally:
+        await s.teardown()
 
 
 @pytest.mark.asyncio

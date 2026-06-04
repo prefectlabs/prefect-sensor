@@ -36,10 +36,13 @@ class SFTPSensor(StatefulSensorMixin, BaseSensor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         self._known: Dict[str, Dict[str, Any]] = {}
+        self._last_mtime: int = 0
         self._ssh_client: Optional[paramiko.SSHClient] = None
         self._sftp_client: Optional[paramiko.SFTPClient] = None
 
     async def setup(self) -> None:
+        loaded = self._load_state()
+        self._last_mtime = int(loaded) if loaded is not None else 0
         self._ssh_client = paramiko.SSHClient()
         self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         connect_kwargs: dict[str, Any] = {
@@ -61,6 +64,7 @@ class SFTPSensor(StatefulSensorMixin, BaseSensor):
         )
 
     async def teardown(self) -> None:
+        self._save_state(self._last_mtime)
         if self._sftp_client is not None:
             self._sftp_client.close()
             self._sftp_client = None
@@ -92,6 +96,9 @@ class SFTPSensor(StatefulSensorMixin, BaseSensor):
 
                 if prev is None:
                     self._known[remote_path] = meta
+                    if meta["mtime"] <= self._last_mtime:
+                        continue
+                    self._last_mtime = max(self._last_mtime, meta["mtime"])
                     yield SensorObservation(
                         event_type="file.appeared",
                         resource_id=f"sftp:{self.config.hostname}:{remote_path}",
@@ -103,6 +110,7 @@ class SFTPSensor(StatefulSensorMixin, BaseSensor):
                     )
                 elif prev != meta:
                     self._known[remote_path] = meta
+                    self._last_mtime = max(self._last_mtime, meta["mtime"])
                     yield SensorObservation(
                         event_type="file.changed",
                         resource_id=f"sftp:{self.config.hostname}:{remote_path}",
@@ -125,4 +133,5 @@ class SFTPSensor(StatefulSensorMixin, BaseSensor):
                 },
             )
 
+        self._save_state(self._last_mtime)
         await asyncio.sleep(self.config.poll_interval_seconds)

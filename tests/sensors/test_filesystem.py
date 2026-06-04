@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -204,3 +207,94 @@ async def test_filesystem_directory_events_are_opt_in(tmp_path: Path) -> None:
     )
     assert directory_event["payload"]["kind"] == "directory"
     assert directory_event["payload"]["is_directory"] is True
+
+
+@pytest.mark.asyncio
+async def test_filesystem_catchup_scan_emits_for_files_after_hwm(
+    tmp_path: Path,
+) -> None:
+    watch = tmp_path / "w"
+    watch.mkdir()
+
+    old_file = watch / "old.txt"
+    old_file.write_text("old", encoding="utf-8")
+    old_mtime = old_file.stat().st_mtime
+
+    time.sleep(0.05)
+    fresh = watch / "fresh.txt"
+    fresh.write_text("fresh", encoding="utf-8")
+    # Make sure mtime is comfortably greater than HWM.
+    new_mtime = old_mtime + 1.0
+    os.utime(fresh, (new_mtime, new_mtime))
+
+    state_file = tmp_path / "fs-state.json"
+    state_file.write_text(json.dumps({"state": old_mtime}))
+
+    cfg = FileSystemSensor.Config(
+        name="fs-catchup",
+        watch_paths=[str(watch)],
+        patterns=["*.txt"],
+        recursive=True,
+        events=["created"],
+        state_file=str(state_file),
+    )
+    sensor = FileSystemSensor(cfg)
+    emitted: list[dict[str, object]] = []
+
+    async def capture(*, event, resource, payload, occurred=None, related=None):
+        emitted.append({"event": event, "resource": resource, "payload": payload})
+
+    with patch("prefect_sensor.base.emit_event_async", side_effect=capture):
+        task = await _start_sensor(sensor)
+        try:
+            await _wait_until(
+                lambda: any(
+                    e["payload"].get("catchup") is True
+                    and e["payload"]["path"].endswith("fresh.txt")
+                    for e in emitted
+                )
+            )
+        finally:
+            await _stop_sensor(sensor, task)
+
+    catchup = [e for e in emitted if e["payload"].get("catchup") is True]
+    assert len(catchup) == 1
+    assert catchup[0]["event"] == "sensor.filesystem.file.created"
+    assert catchup[0]["payload"]["path"].endswith("fresh.txt")
+
+
+@pytest.mark.asyncio
+async def test_filesystem_first_run_writes_state(tmp_path: Path) -> None:
+    """First run with no prior state_file writes the HWM to disk so subsequent
+    runs can decide what to catch up. We don't assert on emitted events here
+    because watchdog/FSEvents behaviour for pre-existing files is platform
+    dependent — the catch-up semantics are exercised by the test above.
+    """
+    watch = tmp_path / "w"
+    watch.mkdir()
+    state_file = tmp_path / "fs-state.json"
+
+    cfg = FileSystemSensor.Config(
+        name="fs-firstrun",
+        watch_paths=[str(watch)],
+        patterns=["*.txt"],
+        recursive=True,
+        events=["created"],
+        state_file=str(state_file),
+    )
+    sensor = FileSystemSensor(cfg)
+
+    async def capture(*, event, resource, payload, occurred=None, related=None):
+        pass
+
+    with patch("prefect_sensor.base.emit_event_async", side_effect=capture):
+        task = await _start_sensor(sensor)
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await _stop_sensor(sensor, task)
+
+    assert state_file.exists()
+    persisted = json.loads(state_file.read_text())
+    assert isinstance(persisted["state"], (int, float))
+    assert persisted["state"] > 0

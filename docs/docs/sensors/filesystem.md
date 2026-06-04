@@ -17,6 +17,7 @@ title: File System Sensor
 | `ignore_patterns` | `list[str]` | `null` | Glob patterns whose matches are dropped. |
 | `ignore_directories` | `bool` | `true` | When `true`, directory-level events are suppressed. |
 | `case_sensitive` | `bool` | `false` | Whether `patterns` and `ignore_patterns` match case-sensitively. |
+| `state_file` | `str \| null` | `null` | Path to a JSON file used to persist the highest `mtime` seen by the sensor. On startup, if a prior HWM is loaded the sensor performs a catch-up scan of `watch_paths` and emits `file.created` (with `payload.catchup: true`) for any file newer than the HWM that watchdog would have missed while the sensor was down. |
 | `emit_prefix` | `str` | `"sensor.filesystem"` | Prefix prepended to every emitted event type. |
 
 ## Example
@@ -47,4 +48,13 @@ Directory variants (`sensor.filesystem.directory.*`) are emitted only when `igno
 Each observation carries:
 
 - **Resource ID** — `filesystem:{path}`
-- **Payload** — `path`, `kind`, `is_directory`, `watch_root`. Move events additionally include `source_path` and `destination_path`.
+- **Payload** — `path`, `kind`, `is_directory`, `watch_root`. Move events additionally include `source_path` and `destination_path`. Catch-up events (see below) additionally include `catchup: true`.
+
+## State persistence
+
+When `state_file` is set, the sensor persists the highest `mtime` (the HWM) it has observed. After each emitted watchdog event the HWM advances to "now" and the file is rewritten atomically; teardown also flushes. On startup:
+
+- If no prior state exists, the HWM is seeded to the current time. No catch-up scan runs and pre-existing files are not replayed.
+- If a prior HWM is loaded, the sensor scans `watch_paths` (honouring `recursive`, `patterns`, `ignore_patterns`, `case_sensitive`) and emits a synthetic `file.created` event for every regular file whose `mtime` exceeds the HWM. These catch-up observations include `catchup: true` in their payload so downstream consumers can distinguish replay from live events.
+
+The HWM tracks process-wall-clock time, not file mtime — it is conservative against missed events but does not deduplicate files that existed before the sensor was first run with a `state_file`.
