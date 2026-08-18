@@ -1,0 +1,10 @@
+sensors:
+  - prefect_sensor.sensors.sql.SQLSensor:
+      name: cgen orders
+      connection_string: postgresql+asyncpg://sensor:sensor@postgres:5432/sensor
+      query: SELECT id, order_id, status, amount FROM orders WHERE id > :hwm ORDER BY id
+      tracking_column: id
+      tracking_type: integer
+      emit_existing: true
+      poll_interval_seconds: 5
+      state_file: /state/sql-hwm.json

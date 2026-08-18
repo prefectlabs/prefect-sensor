@@ -1,0 +1,52 @@
+name: prefect-sensor-sql-example
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: sensor
+      POSTGRES_USER: sensor
+      POSTGRES_PASSWORD: sensor
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sensor -d sensor"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  cgen:
+    image: ghcr.io/bdalpe/cgen:0.0.19
+    volumes:
+      - ./cgen.yaml:/app/config/config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prefect-sensor:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command:
+      - start
+      - --config
+      - /config/sensor.yaml
+      - --summary-interval-seconds
+      - "10"
+    environment:
+      PREFECT_API_URL: "${PREFECT_API_URL:?Set PREFECT_API_URL in examples/sql/.env}"
+      PREFECT_API_KEY: "${PREFECT_API_KEY:?Set PREFECT_API_KEY in examples/sql/.env}"
+    volumes:
+      - ./sensor.yaml:/config/sensor.yaml:ro
+      - sensor-state:/state
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  sensor-state:

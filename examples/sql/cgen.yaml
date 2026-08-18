@@ -1,0 +1,26 @@
+generators:
+  orders:
+    interval: 1
+    samples:
+      - '{}'
+
+pipelines:
+  generate-orders:
+    - type: eval
+      expression: |
+        const evenSecond = Math.floor(Date.now() / 1000) % 2 === 0
+        event.event = evenSecond
+          ? {order_id: "order-1001", status: "created", amount: 42.50}
+          : {order_id: "order-1002", status: "shipped", amount: 18.25}
+
+outputs:
+  postgresql:
+    type: postgresql
+    connectionString: postgresql://sensor:sensor@postgres:5432/sensor
+    tableName: orders
+
+routes:
+  - generator: orders
+    pipelines:
+      - generate-orders
+    output: postgresql
