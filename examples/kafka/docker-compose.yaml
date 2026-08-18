@@ -1,0 +1,78 @@
+name: prefect-sensor-kafka-example
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.4
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr
+      - 0.0.0.0:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --default-log-level
+      - info
+    ports:
+      - "19092:19092"
+      - "19644:9644"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health", "--brokers", "localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.8.2
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  cgen:
+    image: ghcr.io/bdalpe/cgen:0.0.17
+    volumes:
+      - ./cgen.yaml:/app/config/config.yaml:ro
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prefect-sensor:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command:
+      - start
+      - --config
+      - /config/sensor.yaml
+      - --summary-interval-seconds
+      - "10"
+    environment:
+      PREFECT_API_URL: ${PREFECT_API_URL:?Set PREFECT_API_URL in examples/kafka/.env}
+      PREFECT_API_KEY: ${PREFECT_API_KEY:?Set PREFECT_API_KEY in examples/kafka/.env}
+    volumes:
+      - ./sensor.yaml:/config/sensor.yaml:ro
+      - sensor-state:/state
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  sensor-state:

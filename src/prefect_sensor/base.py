@@ -115,6 +115,7 @@ class BaseSensor(abc.ABC):
 
     Subclasses MAY override:
         setup() / teardown() for connection management
+        acknowledge() for source-side acknowledgment after event emission
         build_event_name() / build_resource() to customize event shape
     """
 
@@ -147,6 +148,14 @@ class BaseSensor(abc.ABC):
 
     async def teardown(self) -> None:
         """Close connections, flush buffers. Called once after observe loop."""
+
+    async def acknowledge(self, observation: SensorObservation) -> None:
+        """Acknowledge an observation after its Prefect event is emitted.
+
+        The default implementation is a no-op. Sensors backed by durable queues
+        can override this hook to advance their source position only after the
+        corresponding Prefect event has been accepted.
+        """
 
     @abc.abstractmethod
     async def observe(self) -> AsyncIterator[SensorObservation]:
@@ -192,6 +201,7 @@ class BaseSensor(abc.ABC):
                         if self._stop_event.is_set():
                             break
                         await self._emit(obs)
+                        await self.acknowledge(obs)
                         self._consecutive_errors = 0
                 except Exception as exc:  # noqa: BLE001 — sensor resilience
                     self._errors += 1

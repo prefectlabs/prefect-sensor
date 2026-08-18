@@ -4,25 +4,20 @@ title: Kafka Sensor
 
 # Kafka Sensor
 
-`prefect_sensor.sensors.kafka.KafkaTopicSensor` is intended to consume one or more Kafka topics and emit a `message.received` event for every record it sees.
-
-::: warning Stub implementation
-The current `KafkaTopicSensor` does not yet connect to a Kafka broker. On each `observe()` tick it yields a single hardcoded `message.received` observation for documentation and demo purposes. A production-grade consumer (e.g. via [`aiokafka`](https://aiokafka.readthedocs.io/)) is planned. The config fields below are the documented surface and will be honoured by the real implementation when it lands.
-:::
+`prefect_sensor.sensors.kafka.KafkaTopicSensor` consumes one or more Kafka
+topics with `aiokafka` and emits a `message.received` event for every record.
 
 ## Configuration
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bootstrap_servers` | `str` | `"localhost:9092"` | Comma-separated list of Kafka bootstrap servers. |
-| `topics` | `list[str]` | *required* | Topics to subscribe to. |
-| `group_id` | `str` | `"prefect-sensor"` | Kafka consumer group ID. |
-| `auto_offset_reset` | `str` | `"latest"` | Offset reset policy (`latest` or `earliest`) for new consumer groups. |
-| `poll_timeout_ms` | `int` | `1000` | Per-poll timeout in milliseconds passed to the underlying consumer. |
-| `state_file` | `str \| null` | `null` | Path to a JSON file used to persist last-read offsets as `{topic: {partition: offset}}`. When set, offsets are loaded on `setup()` and saved after every emitted observation and on teardown so restarts resume without replay. |
+| `bootstrap_servers` | `str` | `"localhost:9092"` | Comma-separated Kafka bootstrap servers. This release supports plaintext connections. |
+| `topics` | `list[str]` | *required* | One or more nonempty topic names to subscribe to. |
+| `group_id` | `str` | `"prefect-sensor"` | Nonempty Kafka consumer group ID used for broker commits. |
+| `auto_offset_reset` | `"earliest" \| "latest"` | `"latest"` | Starting position when neither a broker commit nor local snapshot exists. |
+| `poll_timeout_ms` | `int` | `1000` | Nonnegative timeout passed to each Kafka batch poll. |
+| `state_file` | `str \| null` | `null` | Optional local snapshot containing the next offset for each topic partition. |
 | `emit_prefix` | `str` | `"sensor.kafka"` | Prefix prepended to every emitted event type. |
-
-## Example
 
 ```yaml
 sensors:
@@ -32,21 +27,53 @@ sensors:
       topics:
         - orders
       group_id: prefect-sensor-orders
+      auto_offset_reset: earliest
+      state_file: /var/lib/prefect-sensor/orders.json
 ```
 
-See [Getting Started](../getting-started.md) for how to run a config.
+See [Getting Started](../getting-started.md) for how to run a sensor config.
 
 ## Events emitted
 
-With the default `emit_prefix`, the sensor emits:
-
-- `sensor.kafka.message.received` — one event per record consumed.
-
-Each observation carries:
+With the default `emit_prefix`, every consumed record becomes
+`sensor.kafka.message.received`.
 
 - **Resource ID** — `kafka.topic.{topic_name}`
-- **Payload** — `topic`, `partition`, `offset`, `key`, `value`. Values are passed through as strings; once the real consumer is wired up, deserialization (JSON, Avro, etc.) will be the caller's responsibility.
+- **Payload** — `topic`, `partition`, `offset`, `key`, and `value`
 
-## State persistence
+Byte keys and values are decoded as UTF-8 with invalid bytes replaced. Kafka
+nulls remain `null`, and strings supplied by a custom deserializer pass through
+unchanged.
 
-When `state_file` is set, the sensor persists a JSON document of the form `{"state": {"<topic>": {"<partition>": <offset>}}}` and atomically replaces it (temp file + `os.replace`) after each emitted observation and on teardown. On startup the document is read back to seed the in-memory offset map, so a restarted sensor resumes from the last-acknowledged offset rather than the configured `auto_offset_reset` floor. A real `aiokafka` implementation will substitute committed-offset retrieval from the broker for primary recovery; the state file remains useful as a local fallback / snapshot.
+## Delivery and offsets
+
+The sensor disables Kafka auto-commit. It retains each fetched record until the
+corresponding Prefect event is emitted, then commits `record.offset + 1` and
+updates the local state snapshot. A failed Prefect emission therefore leaves
+the record pending for retry.
+
+This is **at-least-once delivery**. If Prefect accepts an event but the following
+Kafka commit fails, the record is emitted again on retry and Prefect may receive
+a duplicate. Downstream automations that require deduplication can use the
+`topic`, `partition`, and `offset` payload fields as a stable record identity.
+
+Kafka consumer-group commits are authoritative on restart. When an assigned
+partition has no broker commit, the sensor seeks to the next offset stored in
+`state_file`; when neither exists, `auto_offset_reset` controls the starting
+position. The file uses this shape:
+
+```json
+{"state": {"orders": {"0": 43, "1": 18}}}
+```
+
+Writes use an atomic temporary-file replacement. Records from partitions lost
+during a group rebalance are removed from the local pending queue so the new
+partition owner can replay them from the broker commit.
+
+## Runnable Kafka and cgen example
+
+The repository includes a complete
+[Docker Compose example](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/kafka)
+with Redpanda, Redpanda Console, the published `cgen` Kafka producer, and a
+locally built sensor container. It targets Prefect Cloud and requires
+`PREFECT_API_URL` and `PREFECT_API_KEY`.

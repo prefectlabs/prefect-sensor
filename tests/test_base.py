@@ -33,6 +33,51 @@ async def test_dummy_sensor_emits_and_stops() -> None:
 
 
 @pytest.mark.asyncio
+async def test_acknowledge_runs_after_successful_emit() -> None:
+    order: list[str] = []
+
+    class AcknowledgingSensor(DummySensor):
+        async def acknowledge(self, observation: SensorObservation) -> None:
+            order.append(f"ack:{observation.payload['i']}")
+
+    sensor = AcknowledgingSensor(AcknowledgingSensor.Config(name="ack", n=1))
+
+    async def emit(*args, **kwargs) -> None:
+        order.append("emit")
+
+    with patch("prefect_sensor.base.emit_event_async", side_effect=emit):
+        await sensor.run()
+
+    assert order == ["emit", "ack:0"]
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_is_skipped_when_emit_fails() -> None:
+    acknowledged: list[SensorObservation] = []
+
+    class AcknowledgingSensor(DummySensor):
+        async def acknowledge(self, observation: SensorObservation) -> None:
+            acknowledged.append(observation)
+
+    sensor = AcknowledgingSensor(
+        AcknowledgingSensor.Config(
+            name="ack-failure",
+            n=1,
+            max_consecutive_errors=1,
+            error_backoff_seconds=0,
+        )
+    )
+
+    with patch(
+        "prefect_sensor.base.emit_event_async",
+        side_effect=RuntimeError("Prefect unavailable"),
+    ):
+        await sensor.run()
+
+    assert acknowledged == []
+
+
+@pytest.mark.asyncio
 async def test_flaky_sensor_halts_after_max_errors() -> None:
     cfg = FlakySensor.Config(
         name="f",

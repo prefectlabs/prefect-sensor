@@ -1,0 +1,18 @@
+generators:
+  orders:
+    interval: 1
+    samples:
+      - '{"order_id":"order-1001","status":"created","amount":42.50}'
+      - '{"order_id":"order-1002","status":"shipped","amount":18.25}'
+
+outputs:
+  kafka:
+    type: kafka
+    config:
+      brokers: ["redpanda:9092"]
+      clientId: "prefect-sensor-cgen"
+    topic: prefect-sensor-demo
+
+routes:
+  - generator: orders
+    output: kafka

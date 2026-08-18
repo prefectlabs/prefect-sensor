@@ -1,0 +1,10 @@
+sensors:
+  - prefect_sensor.sensors.kafka.KafkaTopicSensor:
+      name: cgen orders
+      bootstrap_servers: redpanda:9092
+      topics:
+        - prefect-sensor-demo
+      group_id: prefect-sensor-cgen-example
+      auto_offset_reset: earliest
+      poll_timeout_ms: 1000
+      state_file: /state/kafka-offsets.json

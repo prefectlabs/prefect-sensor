@@ -51,6 +51,10 @@ docker run --rm \
 
 See [docs/docs/docker.md](docs/docs/docker.md) for image tags, environment variables (including `PREFECT_API_KEY`), and a `docker-compose` example.
 
+For a complete Kafka demo, see [`examples/kafka/`](examples/kafka/README.md). It
+starts Redpanda, [`cgen`](https://github.com/bdalpe/cgen) with its Kafka output,
+and a locally built sensor container that sends events to Prefect Cloud.
+
 ### Library
 
 ```python
@@ -65,7 +69,7 @@ asyncio.run(manager.start())
 
 - [File System](docs/docs/sensors/filesystem.md)
 - [SFTP](docs/docs/sensors/sftp.md)
-- [Kafka](docs/docs/sensors/kafka.md) *(stub)*
+- [Kafka](docs/docs/sensors/kafka.md)
 - [SQL](docs/docs/sensors/sql.md)
 
 ## Docs
