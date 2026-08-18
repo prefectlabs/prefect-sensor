@@ -51,10 +51,12 @@ docker run --rm \
 
 See [docs/docs/docker.md](docs/docs/docker.md) for image tags, environment variables (including `PREFECT_API_KEY`), and a `docker-compose` example.
 
-For complete demos, see the [`examples/sftp/`](examples/sftp/README.md) and
-[`examples/kafka/`](examples/kafka/README.md) directories. Both use
-[`cgen`](https://github.com/bdalpe/cgen) to produce sample data and run a locally
-built sensor container that sends events to Prefect Cloud.
+For complete demos, see the
+[`examples/filesystem/`](examples/filesystem/README.md),
+[`examples/sftp/`](examples/sftp/README.md), and
+[`examples/kafka/`](examples/kafka/README.md) directories. Each uses
+[`cgen`](https://github.com/bdalpe/cgen) to produce sample data and runs a
+locally built sensor container that sends events to Prefect Cloud.
 
 ### Library
 

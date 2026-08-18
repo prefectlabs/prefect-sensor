@@ -1,0 +1,15 @@
+generators:
+  reports:
+    interval: 1
+    samples:
+      - '{"report_id":"report-1001","status":"ready","records":42}'
+      - '{"report_id":"report-1002","status":"processing","records":18}'
+
+outputs:
+  files:
+    type: file
+    fileName: /data/cgen-events.log
+
+routes:
+  - generator: reports
+    output: files

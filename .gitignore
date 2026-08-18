@@ -8,3 +8,5 @@ htmlcov/
 examples/kafka/.env
 examples/sftp/.env
 examples/sftp/upload/cgen-events.log*
+examples/filesystem/.env
+examples/filesystem/files/cgen-events.log*

@@ -90,6 +90,12 @@ connected to Prefect Cloud. `cgen` continuously writes sample data into its
 mounted `upload/` directory so appeared and changed events are produced
 automatically; removing a file demonstrates the removed event.
 
+For an end-to-end local filesystem example, use
+[`examples/filesystem/`](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/filesystem).
+Its Compose stack bind-mounts the same host directory into `cgen` and the sensor
+containers. Writes from `cgen`, as well as files created, renamed, or removed on
+the host, produce native filesystem events without an intermediate service.
+
 For an end-to-end Kafka example, use
 [`examples/kafka/`](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/kafka).
 Its Compose stack runs Redpanda, Redpanda Console, `cgen` as the Kafka producer,

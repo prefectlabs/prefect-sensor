@@ -1,0 +1,34 @@
+name: prefect-sensor-filesystem-example
+
+services:
+  prefect-sensor:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command:
+      - start
+      - --config
+      - /config/sensor.yaml
+      - --summary-interval-seconds
+      - "10"
+    environment:
+      PREFECT_API_URL: "${PREFECT_API_URL:?Set PREFECT_API_URL in examples/filesystem/.env}"
+      PREFECT_API_KEY: "${PREFECT_API_KEY:?Set PREFECT_API_KEY in examples/filesystem/.env}"
+    volumes:
+      - ./sensor.yaml:/config/sensor.yaml:ro
+      - ./files:/data
+      - sensor-state:/state
+    restart: unless-stopped
+
+  cgen:
+    image: ghcr.io/bdalpe/cgen:0.0.18
+    volumes:
+      - ./cgen.yaml:/app/config/config.yaml:ro
+      - ./files:/data
+    depends_on:
+      prefect-sensor:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  sensor-state:

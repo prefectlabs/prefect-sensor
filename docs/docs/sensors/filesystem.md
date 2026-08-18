@@ -50,6 +50,16 @@ Each observation carries:
 - **Resource ID** — `filesystem:{path}`
 - **Payload** — `path`, `kind`, `is_directory`, `watch_root`. Move events additionally include `source_path` and `destination_path`. Catch-up events (see below) additionally include `catchup: true`.
 
+## Runnable filesystem example
+
+The repository includes a complete
+[Docker Compose example](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/filesystem)
+with `cgen` writing generated data into a host directory bind-mounted into a
+locally built sensor container. It targets Prefect Cloud and requires
+`PREFECT_API_URL` and `PREFECT_API_KEY`. The generated log demonstrates created
+and modified events automatically; creating, renaming, or deleting another file
+in the shared directory demonstrates the remaining lifecycle events.
+
 ## State persistence
 
 When `state_file` is set, the sensor persists the highest `mtime` (the HWM) it has observed. After each emitted watchdog event the HWM advances to "now" and the file is rewritten atomically; teardown also flushes. On startup:

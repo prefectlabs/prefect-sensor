@@ -1,0 +1,12 @@
+sensors:
+  - prefect_sensor.sensors.filesystem.FileSystemSensor:
+      name: shared local directory
+      watch_paths:
+        - /data
+      recursive: true
+      events:
+        - created
+        - modified
+        - moved
+        - deleted
+      state_file: /state/filesystem-state.json
