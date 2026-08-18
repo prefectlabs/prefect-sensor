@@ -6,3 +6,5 @@ __pycache__/
 .coverage
 htmlcov/
 examples/kafka/.env
+examples/sftp/.env
+examples/sftp/upload/cgen-events.log*

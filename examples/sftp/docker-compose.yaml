@@ -1,0 +1,50 @@
+name: prefect-sensor-sftp-example
+
+services:
+  sftp:
+    image: linuxserver/openssh-server
+    environment:
+      PASSWORD_ACCESS: "true"
+      USER_NAME: "${SFTP_USERNAME:?Set SFTP_USERNAME in examples/sftp/.env}"
+      USER_PASSWORD: "${SFTP_PASSWORD:?Set SFTP_PASSWORD in examples/sftp/.env}"
+    volumes:
+      - ./upload:/upload
+    ports:
+      - "2222:2222"
+
+  cgen:
+    image: ghcr.io/bdalpe/cgen:0.0.18
+    volumes:
+      - ./cgen.yaml:/app/config/config.yaml:ro
+      - ./upload:/upload
+    depends_on:
+      - sftp
+    restart: unless-stopped
+
+  prefect-sensor:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until python -c "import socket; socket.create_connection(('sftp', 2222), timeout=1).close()"; do
+          echo "Waiting for SFTP..."
+          sleep 1
+        done
+        exec prefect-sensor start --config /config/sensor.yaml --summary-interval-seconds 10
+    environment:
+      PREFECT_API_URL: "${PREFECT_API_URL:?Set PREFECT_API_URL in examples/sftp/.env}"
+      PREFECT_API_KEY: "${PREFECT_API_KEY:?Set PREFECT_API_KEY in examples/sftp/.env}"
+      SFTP_USERNAME: "${SFTP_USERNAME:?Set SFTP_USERNAME in examples/sftp/.env}"
+      SFTP_PASSWORD: "${SFTP_PASSWORD:?Set SFTP_PASSWORD in examples/sftp/.env}"
+    volumes:
+      - ./sensor.yaml:/config/sensor.yaml:ro
+      - sensor-state:/state
+    depends_on:
+      - sftp
+      - cgen
+    restart: unless-stopped
+
+volumes:
+  sensor-state:

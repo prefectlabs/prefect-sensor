@@ -1,0 +1,13 @@
+sensors:
+  - prefect_sensor.sensors.sftp.SFTPSensor:
+      name: sftp upload directory
+      hostname: sftp
+      port: 2222
+      username: "{{ env('SFTP_USERNAME') }}"
+      password: "{{ env('SFTP_PASSWORD') }}"
+      allow_agent: false
+      look_for_keys: false
+      remote_directories:
+        - /upload
+      poll_interval_seconds: 5
+      state_file: /state/sftp-state.json

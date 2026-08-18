@@ -53,6 +53,16 @@ Each observation carries:
 
 The sensor maintains an in-memory map of remote paths to size/mtime, so unchanged files are not re-emitted on every poll.
 
+## Runnable SFTP example
+
+The repository includes a complete
+[Docker Compose example](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/sftp)
+with an OpenSSH/SFTP server, `cgen` writing generated data to a mounted upload
+directory, and a locally built sensor container. It targets Prefect Cloud and
+requires `PREFECT_API_URL` and `PREFECT_API_KEY`. The generated file
+demonstrates appeared and changed events automatically; removing a file from
+the example's `upload/` directory demonstrates the removed event.
+
 ## State persistence
 
 By default, restarting the sensor resets the in-memory map and any existing files will be re-emitted as `file.appeared`. Set `state_file` to a writable path to persist the highest `mtime` the sensor has observed. After each poll and on teardown the HWM is written atomically (temp file + `os.replace`). On the next startup, files with `mtime <= HWM` are silently added to the in-memory map without refiring `file.appeared`; only files newer than the HWM produce events. `file.changed` and `file.removed` semantics are unaffected.

@@ -83,7 +83,17 @@ services:
     restart: unless-stopped
 ```
 
-The repo also ships `hack/docker-compose.yaml`, which is a *separate* compose file that spins up a test SFTP server (`linuxserver/openssh-server`) — useful when developing or testing the [SFTP sensor](./sensors/sftp.md) locally.
+For an end-to-end SFTP example, use
+[`examples/sftp/`](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/sftp).
+Its Compose stack runs an OpenSSH/SFTP server and a locally built sensor image
+connected to Prefect Cloud. `cgen` continuously writes sample data into its
+mounted `upload/` directory so appeared and changed events are produced
+automatically; removing a file demonstrates the removed event.
+
+For an end-to-end Kafka example, use
+[`examples/kafka/`](https://github.com/prefectlabs/prefect-sensor/tree/main/examples/kafka).
+Its Compose stack runs Redpanda, Redpanda Console, `cgen` as the Kafka producer,
+and a locally built sensor image connected to Prefect Cloud.
 
 ## Building locally
 
